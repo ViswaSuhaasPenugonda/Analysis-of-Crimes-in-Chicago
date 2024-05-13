@@ -1,0 +1,435 @@
+---
+title: "STAT- S 670 EXPLORATORY DATA ANALYSIS FINAL PROJECT (CHICAGO CRIME ANALYSIS"
+author: "VISWA SUHAAS PENUGONDA, HARSHA SAI GADE, MANASA GUDISE"
+output: pdf_document
+---
+
+```{r}
+
+```
+
+## NEEDED LIBRARIES
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(broom)
+library(grid)
+library(mgcv)
+library(data.table)
+library(stringr)
+library(reshape2)
+library(MASS)
+library(RCurl)
+library(GGally)
+```
+
+# PRE- PROCESSING
+
+## LOAD THE DATASET
+
+```{r}
+DATA= read.csv("/Users/suhaaspenugonda/Documents/IU/Spring Semester 2022-23/Exploratory Data Analysis/FINAL PROJECT/Crimes_2022.csv")
+head(DATA)
+```
+
+```{r}
+# UNDERSTANDING THE NAMES OF THE COLUMNS IN THE DATASET
+
+names(DATA)
+
+# REMOVING COLUMNS WHICH DO NOT HAVE SIGNIFICANCE IN UNDERSTANDING THE DATA IN THE DATASET
+
+COL_DROP = c("Case.Number", "Description", "IUCR", "Beat", "Block", "Ward", "FBI.Code", "X.Coordinate", "Y.Coordinate", "Location")
+
+DATA = DATA[,!(names(DATA) %in% COL_DROP)]
+
+names(DATA)
+
+summary(DATA)
+```
+
+## PLOT OF THE FREQUENCY DISTRIBUTION OF VARIOUS TYPES OF CRIMES IN CHICAGO
+
+```{r fig.width=10}
+ggplot(DATA, aes(y = Primary.Type)) + theme_minimal() + 
+  geom_bar() + xlab("COUNT OF THE CRIMES") + ylab("TYPE OF THE CRIME") + ggtitle("FREQUENCY DISTRIBUTION OF VARIOUS TYPES OF CRIMES IN CHICAGO")
+
+CRIMES = DATA$Primary.Type
+CRIMES = as.data.frame(table(CRIMES))
+CRIMES = CRIMES[order(CRIMES$Freq,decreasing = TRUE),]
+CRIMES = CRIMES[CRIMES$Freq > 5000,]
+```
+
+## PLOT OF THE FREQUENCY DISTRIBUTION OF VARIOUS TYPES OF CRIMES BASED ON THE LOCATION IN CHICAGO
+
+```{r fig.height=15, fig.width=15}
+LOCATION_CRIME = DATA$Location.Description
+LOCATION_CRIME = as.data.frame(table(LOCATION_CRIME))
+LOCATION_CRIME = LOCATION_CRIME[order(LOCATION_CRIME$Freq,decreasing = TRUE),]
+LOCATION_CRIME = LOCATION_CRIME[1:10,]
+
+ggplot(LOCATION_CRIME,aes(x=LOCATION_CRIME,y=Freq)) +  geom_bar(stat="identity") + coord_flip()+ theme_minimal()+
+  labs(y= 'FREQUENCY DISTRIBUTION',x ='LOCATIONS' , title = 'FREQUENCY DISTRIBUTION OF VARIOUS TYPES OF CRIMES BASED ON THE LOCATION IN CHICAGO')
+```
+
+## FILTER THE DATA AND PERFORM BIVARIATE ANALYSIS TO FIND THE RELATION BETWEEN THE TYPE OF CRIMES WITH RESPECT TO THE LOCATION
+
+```{r fig.height=10, fig.width=15}
+DATA_SUBSET1 = DATA[DATA$Location.Description %in% LOCATION_CRIME$LOCATION_CRIME,]
+DATA_SUBSET1 = DATA_SUBSET1[DATA_SUBSET1$Primary.Type %in% CRIMES$CRIMES,]
+
+
+DATA_SUBSET2 = filter(DATA[DATA$Location.Description %in% LOCATION_CRIME$LOCATION_CRIME,], Primary.Type == 'SEX OFFENSE' | Primary.Type == 'PROSTITUTION' | Primary.Type == 'OBSCENITY' | Primary.Type == 'CRIMINAL SEXUAL ASSUALT' | Primary.Type == 'CRIM SEXUAL ASSUALT')
+
+DATA_SUBSET2$Primary.Type_2 = 'SEXUAL OFFENSE AND RELATED'
+
+DATA_SUBSET2$Primary.Type = DATA_SUBSET2$Primary.Type_2 
+DATA_SUBSET2 = subset(DATA_SUBSET2, select = -c(Primary.Type_2))
+
+DATA_MERGED = bind_rows(DATA_SUBSET1 , DATA_SUBSET2)
+
+ggplot(DATA_MERGED,aes(x = Primary.Type))+
+  geom_bar()+
+  facet_wrap(~ Location.Description,nrow = 2,ncol=5)+ 
+  theme(axis.text.x = element_text(angle = 90)) + labs(x = "TYPE OF CRIME" , y = "FREQUENCY DISTRIBUTION OF THE CRIME") + ggtitle(" FACET BAR PLOT TO KNOW THE OCCURENCE OF VARIOUS CRIMES BASED ON THE LOCATION")
+```
+
+## SEPARATION THE DATE COLUMN TO MONTH, DATE, AND TIME
+
+```{r}
+DATA_MERGED$DATE = as.Date(DATA_MERGED$Date, format = "%m/%d/%Y")
+DATA_MERGED$TIME = format(as.POSIXct(DATA_MERGED$DATE), format = "%H:%M:%S")
+DATA_MERGED$MONTH_NUM = strftime(DATA_MERGED$DATE, "%m")
+
+#CONVERT THE VALUE TO MONTH TO NUMERIC
+DATA_MERGED$MONTH = as.numeric(format(DATA_MERGED$DATE, "%m"))
+```
+
+## ADD THE NAME OF THE MONTH FOR MORE SPECIFICITY
+
+```{r}
+DATA_MERGED$MONTH_NAME = month.name[DATA_MERGED$MONTH]
+all(DATA_MERGED$MONTH_NAME %in% month.name)
+DATA_MERGED$MONTH_NAME <- factor(DATA_MERGED$MONTH_NAME, levels=month.name)
+```
+
+## PLOT OF THE FREQUENCY DISTRIBUTION OF VARIOUS CRIMES BASED ON THE MONTH IN CHICAGO DURING 2022
+
+```{r fig.width=10}
+ggplot(DATA_MERGED, aes(x = MONTH_NAME)) + theme(axis.text.x = element_text(angle = 90))  + 
+  geom_bar() + ylab("FREQUENCY DISTRIBUTION OF VARIOUS CRIMES") + ggtitle("FREQUENCY DISTRIBUTION OF VARIOUS CRIMES BASED ON THE MONTH IN CHICAGO DURING 2022") + xlab("NAME OF THE MONTH")
+```
+
+## ENCODE THE "Arrest", "Domestic" COLUMNS FOR FINAL OUTPUT
+
+```{r}
+# CONVERT 'Arrest' TO LOGICAL
+DATA_MERGED$Arrest <- as.logical(DATA_MERGED$Arrest)
+
+# CONVERT 'Domestic' TO LOGICAL
+DATA_MERGED$Domestic <- as.logical(DATA_MERGED$Domestic)
+
+# CONVERT 'Arrest' and 'Domestic' TO NUMERIC
+DATA_MERGED$ARREST_NUM <- as.numeric(DATA_MERGED$Arrest)
+DATA_MERGED$DOMESTIC_NUM <- as.numeric(DATA_MERGED$Domestic)
+
+DATA_MERGED$ARREST_NUM[DATA_MERGED$Arrest == 'TRUE'] = 1
+DATA_MERGED$ARREST_NUM[DATA_MERGED$Arrest == 'FALSE'] = 0
+
+DATA_MERGED$DOMESTIC_NUM[DATA_MERGED$Domestic == 'TRUE'] = 1
+DATA_MERGED$DOMESTIC_NUM[DATA_MERGED$Domestic == 'FALSE'] = 0
+```
+
+## ADD THE NAME OF THE DAY FOR MORE SPECIFICITY AND ENCODE THEM INTO NUMERIC VALUES
+
+```{r}
+DATA_MERGED$DAY <- weekdays(as.Date(DATA_MERGED$DATE))
+
+DATA_MERGED = DATA_MERGED %>% mutate(DAY_NUM = recode(DAY, 'Monday' = 1, 'Tuesday' = 2,'Wednesday'=3,'Thursday'=4,'Friday'=5,'Saturday'=6,'Sunday'=7))
+```
+
+## PLOT OF THE FREQUENCY DISTRIBUTION OF VARIOUS CRIMES BASED ON THE DAY IN A WEEK IN CHICAGO DURING 2022
+
+```{r fig.width=12}
+ggplot(DATA_MERGED, aes(x = DAY)) + theme(axis.text.x = element_text(angle = 90))  + 
+  geom_bar() + ylab("FREQUENCY DISTRIBUTION OF VARIOUS CRIMES") + ggtitle("PLOT OF THE FREQUENCY DISTRIBUTION OF VARIOUS CRIMES BASED ON THE DAY IN A WEEK IN CHICAGO DURING 2022") + xlab("NAME OF THE DAY")
+```
+
+## SAVE THE CHANGES MADE TO THE DATESET TO THE ACTUAL CSV FILE
+
+```{r}
+write.csv(DATA_MERGED,'PREPROCESSED_CHICAGO_CRIMES.csv')
+```
+
+## LOAD THE DATASET
+
+```{r}
+DATA= read.csv("/Users/suhaaspenugonda/Documents/IU/Spring Semester 2022-23/Exploratory Data Analysis/FINAL PROJECT/PREPROCESSED_CHICAGO_CRIMES.csv")
+
+head(DATA)
+```
+
+## SORT THE DATA IN ASCENDING ORDER BASED ON THE OCCURANCE OF THE CRIME
+
+```{r}
+DATA <- DATA[order(DATA$Date), ]
+DATA$MONTH_NAME = factor(DATA$MONTH_NAME , levels = month.name )
+DATA$DAY = factor(DATA$DAY , levels= c("Sunday", "Monday", 
+    "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+```
+
+## PLOT OF THE FREQUENCY DISTRIBUTION OF THE CRIMES BASED ON THE LOCATION IN A MONTH
+
+```{r fig.width=10}
+ggplot(DATA,aes(x = MONTH_NAME))+
+  geom_bar()+
+  facet_wrap(~Location.Description)+
+  theme(axis.text.x = element_text(angle = 90)) +
+  ggtitle("PLOT OF THE FREQUENCY DISTRIBUTION OF THE CRIMES BASED ON THE LOCATION IN A MONTH")
+```
+
+# ANALYSIS TO KNOW THE PROPORTION OF ARRESTS FOR DIFFERENT CRIMES AT VARIOUS LOCATIONS
+
+## STACKED BAR PLOT BASED ON THE PROPORTION OF ARRESTS AT EACH CRIME LOCATION
+
+```{r fig.height=10, fig.width=15}
+ggplot(DATA,aes(x = Location.Description,fill = Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+  geom_bar(position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("ARREST PROPORTION") + xlab("LOCATION OF THE CRIME") + ggtitle("STACKED BAR PLOT BASED ON THE PROPORTION OF ARRESTS AT EACH CRIME LOCATION")
+```
+
+## STACKED BAR PLOT BASED ON THE PROPORTION OF ARRESTS MADE FOR VARIOUS CRIMES
+
+```{r fig.height=7, fig.width=10}
+ggplot(DATA,aes(x = Primary.Type,fill = Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS MADE FOR VARIOUS CRIMES") + xlab("TYPE OF THE CRIME") + ggtitle("STACKED BAR PLOT BASED ON THE PROPORTION OF ARRESTS MADE FOR VARIOUS CRIMES")
+```
+
+## FACETED BAR PLOT BASED ON THE PROPORTION OF ARRESTS MADE FOR VARIOUS CRIMES AT VARIOUS LOCATIONS
+
+```{r fig.height=10, fig.width=12}
+ggplot(DATA,aes(x = Location.Description,fill = Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS MADE FOR VARIOUS CRIMES") + xlab("LOCATION OF THE CRIME") + ggtitle("FACETED BAR PLOT BASED ON THE PROPORTION OF ARRESTS MADE FOR VARIOUS CRIMES AT VARIOUS LOCATIONS") + facet_wrap(~Primary.Type)
+```
+
+# ANALYSIS OF ARRESTS FOR DIFFERENT CRIMES ACROSS THE VARIOUS MONTHS/DAYS OF THE YEAR
+
+## ANALYSIS FOR SEXUAL OFFENSE AND RELATED
+
+```{r}
+SEXUAL_RELATED = subset(DATA,Primary.Type=='SEXUAL OFFENSE AND RELATED')
+```
+
+### PLOT OF THE PROPORTION OF ARRESTS FOR SEXUAL OFFENSE AND RELATED CRIMES ACROSS VARIOUS MONTHS OF THE YEAR
+
+```{r fig.width=12}
+SEXUAL_RELATED_DATA1 <- SEXUAL_RELATED %>%
+  group_by(MONTH_NAME,Arrest) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+ggplot(SEXUAL_RELATED_DATA1,aes(x = SEXUAL_RELATED_DATA1$MONTH_NAME,y= pct,fill = SEXUAL_RELATED_DATA1$Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(stat = "identity",
+           position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS") + xlab("LOCATION OF THE CRIME") + ggtitle("PROPORTION OF ARRESTS FOR SEXUAL OFFENSE AND RELATED CRIMES ACROSS VARIOUS MONTHS OF THE YEAR") + geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) + ylab("PROPORTION OF ARRESTS") + xlab("MONTHS OF THE ARRESTS") + ggtitle("PROPORTION OF ARRESTS FOR SEXUAL OFFENSE AND RELATED CRIMES ACROSS VARIOUS MONTHS OF THE YEAR")
+```
+
+### PLOT OF THE PROPORTION OF ARREST FOR SEXUAL OFFENSE AND RELATED CRIMES ACROSS VARIOUS DAYS OF THE WEEK
+
+```{r fig.width=12}
+SEXUAL_RELATED_DATA2 <- SEXUAL_RELATED %>%
+  group_by(DAY,Arrest) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+ggplot(SEXUAL_RELATED_DATA2,aes(x = SEXUAL_RELATED_DATA2$DAY,y= pct,fill = SEXUAL_RELATED_DATA2$Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(stat = "identity",
+           position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS") + xlab("LOCATION OF THE CRIME") + ggtitle("PROPORTION OF ARREST FOR SEXUAL OFFENSE AND RELATED CRIMES ACROSS VARIOUS DAYS OF THE WEEK") + geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) + ylab("PROPORTION OF ARRESTS") + xlab("DAY OF THE CRIME OCCURANCE") + ggtitle("PROPORTION OF ARREST FOR SEXUAL OFFENSE AND RELATED CRIMES ACROSS VARIOUS DAYS OF THE WEEK")
+```
+
+## ANALYSIS OF WEAPONS VIOLATION
+
+```{r}
+WEAPON_RELATED = subset(DATA,Primary.Type=='WEAPONS VIOLATION')
+```
+
+### PLOT OF THE PROPORTION OF ARRESTS FOR WEAPONS VIOLATION CRIMES ACROSS VARIOUS MONTHS OF THE YEAR
+
+```{r fig.width=12}
+WEAPON_RELATED_DATA1 <- WEAPON_RELATED %>%
+  group_by(MONTH_NAME,Arrest) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+ggplot(WEAPON_RELATED_DATA1,aes(x = WEAPON_RELATED_DATA1$MONTH_NAME,y= pct,fill = WEAPON_RELATED_DATA1$Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(stat = "identity",
+           position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS") + xlab("LOCATION OF THE CRIME") + ggtitle("PROPORTION OF ARRESTS FOR WEAPON_RELATED CRIMES ACROSS VARIOUS MONTHS OF THE YEAR") + geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) + ylab("PROPORTION OF ARRESTS") + xlab("MONTHS OF THE ARRESTS") + ggtitle("PROPORTION OF ARRESTS FOR WEAPON_RELATED CRIMES ACROSS VARIOUS MONTHS OF THE YEAR")
+```
+
+### PLOT OF THE PROPORTION OF ARREST FOR WEAPON_RELATED CRIMES ACROSS VARIOUS DAYS OF THE WEEK
+
+```{r fig.width=12}
+WEAPON_RELATED_DATA2 <- WEAPON_RELATED %>%
+  group_by(DAY,Arrest) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+ggplot(WEAPON_RELATED_DATA2,aes(x = WEAPON_RELATED_DATA2$DAY,y= pct,fill = WEAPON_RELATED_DATA2$Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(stat = "identity",
+           position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS") + xlab("LOCATION OF THE CRIME") + ggtitle("PROPORTION OF ARREST FOR WEAPON_RELATED CRIMES ACROSS VARIOUS DAYS OF THE WEEK") + geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) + ylab("PROPORTION OF ARRESTS") + xlab("DAY OF THE CRIME OCCURANCE") + ggtitle("PROPORTION OF ARREST FOR WEAPON_RELATED CRIMES ACROSS VARIOUS DAYS OF THE WEEK")
+```
+
+# ANALYSIS OF ARRESTS FOR DIFFERENT CRIMES ACROSS THE VARIOUS LOCATIONS
+
+## ANALYSIS FOR STREETS
+
+```{r}
+STREETS = subset(DATA,Location.Description == "STREET")
+```
+
+### PLOT OF THE PROPORTION OF ARRESTS FOR STREET CRIMES ACROSS VARIOUS MONTHS OF THE YEAR
+
+```{r fig.width=12}
+STREETS_DATA1 <- STREETS %>%
+  group_by(MONTH_NAME,Arrest) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+ggplot(STREETS_DATA1,aes(x = STREETS_DATA1$MONTH_NAME,y= pct,fill = STREETS_DATA1$Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(stat = "identity",
+           position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS") + xlab("LOCATION OF THE CRIME") + ggtitle("PROPORTION OF ARRESTS FOR STREET CRIMES ACROSS VARIOUS MONTHS OF THE YEAR") + geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) + ylab("PROPORTION OF ARRESTS") + xlab("MONTHS OF THE ARRESTS") + ggtitle("PROPORTION OF ARRESTS FOR STREET CRIMES ACROSS VARIOUS MONTHS OF THE YEAR")
+```
+
+### PLOT OF THE PROPORTION OF ARRESTS FOR STREET CRIMES ACROSS VARIOUS DAYS OF THE WEEK
+
+```{r fig.width=12}
+STREETS_DATA2 <- STREETS %>%
+  group_by(DAY,Arrest) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+ggplot(STREETS_DATA2,aes(x = STREETS_DATA2$DAY,y= pct,fill = STREETS_DATA2$Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(stat = "identity",
+           position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS") + xlab("LOCATION OF THE CRIME") + ggtitle("PROPORTION OF ARRESTS FOR STREET CRIMES ACROSS VARIOUS DAYS OF THE WEEK") + geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) + ylab("PROPORTION OF ARRESTS") + xlab("DAY OF THE CRIME OCCURANCE") + ggtitle("PROPORTION OF ARRESTS FOR STREET CRIMES ACROSS VARIOUS DAYS OF THE WEEK")
+```
+
+## ANALYSIS FOR APARTMENTS
+
+```{r}
+APARTMENTS = subset(DATA,Location.Description == "APARTMENT")
+```
+
+### PLOT OF THE PROPORTION OF ARRESTS FOR APARTMENT CRIMES ACROSS VARIOUS MONTHS OF THE YEAR
+
+```{r fig.width=12}
+APARTMENTS_DATA1 <- APARTMENTS %>%
+  group_by(MONTH_NAME,Arrest) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+ggplot(APARTMENTS_DATA1,aes(x = APARTMENTS_DATA1$MONTH_NAME,y= pct,fill = APARTMENTS_DATA1$Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(stat = "identity",
+           position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS") + xlab("LOCATION OF THE CRIME") + ggtitle("PROPORTION OF ARRESTS FOR APARTMENT CRIMES ACROSS VARIOUS MONTHS OF THE YEAR") + geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) + ylab("PROPORTION OF ARRESTS") + xlab("MONTHS OF THE ARRESTS") + ggtitle("PROPORTION OF ARRESTS FOR APARTMENT CRIMES ACROSS VARIOUS MONTHS OF THE YEAR")
+```
+
+### PLOT OF THE PROPORTION OF ARRESTS FOR APARTMENT CRIMES ACROSS VARIOUS DAYS OF THE WEEK
+
+```{r fig.width=12}
+APARTMENTS_DATA2 <- APARTMENTS %>%
+  group_by(DAY,Arrest) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+
+ggplot(APARTMENTS_DATA2,aes(x = APARTMENTS_DATA2$DAY,y= pct,fill = APARTMENTS_DATA2$Arrest)) + theme(axis.text.x = element_text(angle = 90)) +
+    geom_bar(stat = "identity",
+           position = "fill") +scale_fill_manual(values = c("grey", "black"), 
+                    name = "CRIME THAT LEAD TO AN ARREST") + ylab("PROPORTION OF ARRESTS") + xlab("LOCATION OF THE CRIME") + ggtitle("PROPORTION OF ARRESTS FOR APARTMENT CRIMES ACROSS VARIOUS DAYS OF THE WEEK") + geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) + ylab("PROPORTION OF ARRESTS") + xlab("DAY OF THE CRIME OCCURANCE") + ggtitle("PROPORTION OF ARRESTS FOR APARTMENT CRIMES ACROSS VARIOUS DAYS OF THE WEEK")
+```
+
+# MODELLING TO GET A BETTER ACCURACY OF FUTURE CRIME PREDICTION
+
+```{r}
+LOG_REG <- glm(ARREST_NUM ~ Primary.Type  + Location.Description , family= 'binomial',data = DATA)
+
+summary(LOG_REG)
+```
+
+## CREATE A DATAFRAME TO STORE ALL POSSIBLE COMBINATIONS OF 'Primary.Type', 'Location.Description' & 'Domestic'
+
+```{r}
+CRIMES_DATA = expand.grid(Primary.Type = c("BATTERY", "BURGLARY", "CRIMINAL DAMAGE" , "DECEPTIVE PRACTICE" , "MOTOR VEHICLE THEFT", "OTHER OFFENSE" , "ROBBERY" , "SEXUAL OFFENSE AND RELATED", "THEFT" , "WEAPONS VIOLATION"), Location.Description = c("APARTMENT","COMMERCIAL / BUSINESS OFFICE", "OTHER (SPECIFY)", "PARKING LOT / GARAGE (NON RESIDENTIAL)","RESIDENCE","RESTAURANT", "SIDEWALK" , "SMALL RETAIL STORE" , "STREET") , Domestic  = c("TRUE","FALSE"))
+```
+
+## PREDICT THE ARREST PROBABILITIES AGAINST THE NEW DATA AND THE ORIGINAL DATA
+
+```{r}
+# Predicting the arrest probabilities of 'CRIMES_DATA' using the logistic regression model and storing the predicted probabilities in a new column ARREST_PROB in CRIMES_DATA.
+
+CRIMES_DATA$ARREST_PROB = predict(LOG_REG, CRIMES_DATA, type="response")
+
+# Predicting the arrest probabilities of the original crimes data 'DATA' using the same logistic regression model and storing the predicted probabilities in a new column 'PROBABILITIES' in DATA.
+
+DATA$PROBABILITIES = predict(LOG_REG, DATA, type="response")
+```
+
+```{r}
+
+# The ifelse() function is used to create a new column called ARREST_NUM in the CRIMES_DATA data frame based on the ARREST_PROB column. The ARREST_NUM column will have a value of 1 if the corresponding ARREST_NUM value is greater than 0.5, indicating that an arrest is likely, and a value of 0 otherwise.
+
+CRIMES_DATA$ARREST_NUM = ifelse(CRIMES_DATA$ARREST_PROB > 0.5,1,0)
+```
+
+## FACET PLOT OF THE ACTUAL VS THE PROBABLE ARRESTS AT VARIOUS LOCATIONS
+
+```{r fig.height=6, fig.width=10}
+ggplot(DATA,aes(y =Primary.Type))+geom_point(aes(x=PROBABILITIES,color=Arrest), size=3 , alpha = 0.7) + scale_color_manual(values = c("TRUE" = "black", "FALSE" = "brown"))+ facet_wrap(~DATA$Location.Description) + xlab("ARREST PROBABILITY") + ylab("TYPE OF THE CRIME")+ggtitle("FACET PLOT OF THE ACTUAL VS THE PROBABLE ARRESTS AT VARIOUS LOCATIONS") 
+```
+
+## FACET PLOT OF THE ACTUAL VS THE PROBABLE ARRESTS FOR VARIOUS CRIMES
+
+```{r fig.height=6, fig.width=11}
+ggplot(DATA,aes(y =Location.Description))+geom_point(aes(x=PROBABILITIES,color=Arrest), size=3 , alpha = 0.7) + scale_color_manual(values = c("TRUE" = "black", "FALSE" = "brown"))+ facet_wrap(~DATA$Primary.Type) + xlab("ARREST PROBABILITY") + ylab("LOCATION OF THE CRIME")+ggtitle("FACET PLOT OF THE ACTUAL VS THE PROBABLE ARRESTS FOR VARIOUS CRIMES") 
+```
+
+
+
+
+
+
+
+
